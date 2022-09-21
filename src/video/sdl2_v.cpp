@@ -139,7 +139,7 @@ bool VideoDriver_SDL_Base::CreateMainWindow(uint w, uint h, uint flags)
 	flags |= SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
 
 	if (_fullscreen) {
-		flags |= SDL_WINDOW_FULLSCREEN;
+		flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 	}
 
 	int x = SDL_WINDOWPOS_UNDEFINED, y = SDL_WINDOWPOS_UNDEFINED;
@@ -664,7 +664,7 @@ bool VideoDriver_SDL_Base::ToggleFullscreen(bool fullscreen)
 	}
 
 	Debug(driver, 1, "SDL2: Setting {}", fullscreen ? "fullscreen" : "windowed");
-	int ret = SDL_SetWindowFullscreen(this->sdl_window, fullscreen ? SDL_WINDOW_FULLSCREEN : 0);
+	int ret = SDL_SetWindowFullscreen(this->sdl_window, fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 	if (ret == 0) {
 		/* Switching resolution succeeded, set fullscreen value of window. */
 		_fullscreen = fullscreen;

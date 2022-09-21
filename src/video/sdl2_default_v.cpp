@@ -35,9 +35,8 @@
 
 static FVideoDriver_SDL_Default iFVideoDriver_SDL_Default;
 
+static SDL_Renderer *_sdl_renderer;
 static SDL_Surface *_sdl_surface;
-static SDL_Surface *_sdl_rgb_surface;
-static SDL_Surface *_sdl_real_surface;
 static SDL_Palette *_sdl_palette;
 
 void VideoDriver_SDL_Default::UpdatePalette()
@@ -64,30 +63,6 @@ void VideoDriver_SDL_Default::MakePalette()
 
 	CopyPalette(this->local_palette, true);
 	this->UpdatePalette();
-
-	if (_sdl_surface != _sdl_real_surface) {
-		/* When using a shadow surface, also set our palette on the real screen. This lets SDL
-		 * allocate as many colors (or approximations) as
-		 * possible, instead of using only the default SDL
-		 * palette. This allows us to get more colors exactly
-		 * right and might allow using better approximations for
-		 * other colors.
-		 *
-		 * Note that colors allocations are tried in-order, so
-		 * this favors colors further up into the palette. Also
-		 * note that if two colors from the same animation
-		 * sequence are approximated using the same color, that
-		 * animation will stop working.
-		 *
-		 * Since changing the system palette causes the colours
-		 * to change right away, and allocations might
-		 * drastically change, we can't use this for animation,
-		 * since that could cause weird coloring between the
-		 * palette change and the blitting below, so we only set
-		 * the real palette during initialisation.
-		 */
-		SDL_SetSurfacePalette(_sdl_real_surface, _sdl_palette);
-	}
 }
 
 void VideoDriver_SDL_Default::Paint()
@@ -120,10 +95,12 @@ void VideoDriver_SDL_Default::Paint()
 
 	SDL_Rect r = { this->dirty_rect.left, this->dirty_rect.top, this->dirty_rect.right - this->dirty_rect.left, this->dirty_rect.bottom - this->dirty_rect.top };
 
-	if (_sdl_surface != _sdl_real_surface) {
-		SDL_BlitSurface(_sdl_surface, &r, _sdl_real_surface, &r);
-	}
-	SDL_UpdateWindowSurfaceRects(this->sdl_window, &r, 1);
+	// TODO: Either use the dirty rect or delete it if it's not necessary.
+	// Prove it if it's not necessary.
+	SDL_Texture * texture = SDL_CreateTextureFromSurface(_sdl_renderer, _sdl_surface);
+	SDL_RenderCopy(_sdl_renderer, texture, NULL, NULL);
+	SDL_RenderPresent(_sdl_renderer);
+	SDL_DestroyTexture(texture);
 
 	this->dirty_rect = {};
 }
@@ -132,25 +109,28 @@ bool VideoDriver_SDL_Default::AllocateBackingStore(int w, int h, bool force)
 {
 	int bpp = BlitterFactory::GetCurrentBlitter()->GetScreenDepth();
 
-	_sdl_real_surface = SDL_GetWindowSurface(this->sdl_window);
-	if (_sdl_real_surface == nullptr) usererror("SDL2: Couldn't get window surface: %s", SDL_GetError());
+	/* Destroy any previously created renderer. */
+	if (_sdl_renderer != nullptr) {
+		SDL_DestroyRenderer(_sdl_renderer);
+		_sdl_renderer = nullptr;
+	}
 
-	if (!force && w == _sdl_real_surface->w && h == _sdl_real_surface->h) return false;
+	// TODO: We probably don't need to create a new renderer every time we
+	// allocate the backing store.
+	_sdl_renderer = SDL_CreateRenderer(this->sdl_window, -1, 0);
+	if (_sdl_renderer == nullptr) usererror("SDL2: Couldn't create renderer: %s", SDL_GetError());
+
+	// TODO: Implement force
+	//if (!force && w == _sdl_real_surface->w && h == _sdl_real_surface->h) return false;
 
 	/* Free any previously allocated rgb surface. */
-	if (_sdl_rgb_surface != nullptr) {
-		SDL_FreeSurface(_sdl_rgb_surface);
-		_sdl_rgb_surface = nullptr;
+	if (_sdl_surface != nullptr) {
+		SDL_FreeSurface(_sdl_surface);
+		_sdl_surface = nullptr;
 	}
 
-	if (bpp == 8) {
-		_sdl_rgb_surface = SDL_CreateRGBSurface(0, w, h, 8, 0, 0, 0, 0);
-		if (_sdl_rgb_surface == nullptr) usererror("SDL2: Couldn't allocate shadow surface: %s", SDL_GetError());
-
-		_sdl_surface = _sdl_rgb_surface;
-	} else {
-		_sdl_surface = _sdl_real_surface;
-	}
+	_sdl_surface = SDL_CreateRGBSurface(0, w, h, bpp, 0, 0, 0, 0);
+	if (_sdl_surface == nullptr) usererror("SDL2: Couldn't allocate surface: %s", SDL_GetError());
 
 	/* X11 doesn't appreciate it if we invalidate areas outside the window
 	 * if shared memory is enabled (read: it crashes). So, as we might have
